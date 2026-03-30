@@ -1,6 +1,8 @@
 /**
- * TypeScript interfaces for the image processing API.
+ * TypeScript interfaces for the image processing application.
  */
+
+// ── API Response Types ──────────────────────────────────────────────
 
 export interface SessionResponse {
   session_id: string;
@@ -50,6 +52,24 @@ export interface VerifyRoundTripResponse {
 
 export type FTComponent = 'magnitude' | 'phase' | 'real' | 'imaginary';
 
+// ── Mixer Types ─────────────────────────────────────────────────────
+
+export interface ViewportPairProps {
+  sessionId: string;
+  slot: number;
+  isInput: boolean;
+  onImageLoaded?: (slot: number) => void;
+}
+
+export type OutputTarget = 0 | 1;
+
+export interface ResizePolicyState {
+  mode: 'smallest' | 'largest' | 'fixed';
+  fixedWidth: number;
+  fixedHeight: number;
+  preserveAspect: boolean;
+}
+
 export interface ViewportState {
   sessionId: string;
   slot: number;
@@ -61,3 +81,84 @@ export interface ViewportState {
   width: number;
   height: number;
 }
+
+export type MixMode = 'mag-phase' | 'real-imag';
+
+export interface ImageWeight {
+  componentA: number; // magnitude or real
+  componentB: number; // phase or imaginary
+}
+
+export interface MixerState {
+  mode: MixMode;
+  weights: ImageWeight[];
+  regionSize: number;        // 0–100%
+  regionType: 'inner' | 'outer';
+  simulateSlow: boolean;
+}
+
+// ── Mixing API Types ────────────────────────────────────────────────
+
+export interface MixRequest {
+  mode: MixMode;
+  weights: ImageWeight[];
+  region_size: number;
+  region_type: 'inner' | 'outer';
+  output_slot: number;
+  simulate_slow: boolean;
+}
+
+export interface MixResponse {
+  output_slot: number;
+  preview: string; // base64 PNG
+  width: number;
+  height: number;
+}
+
+// ── Emphasizer Types ────────────────────────────────────────────────
+
+export type EmphasizerAction =
+  | 'shift'
+  | 'complex-exponential'
+  | 'stretch'
+  | 'mirror'
+  | 'even-odd'
+  | 'rotate'
+  | 'differentiate'
+  | 'integrate'
+  | 'window'
+  | 'multiple-ft';
+
+export type WindowType = 'rectangular' | 'gaussian' | 'hamming' | 'hanning';
+
+export interface EmphasizerParams {
+  // Shift
+  shiftX: number;
+  shiftY: number;
+  // Complex exponential
+  expU: number;
+  expV: number;
+  // Stretch
+  stretchFactor: number;
+  // Mirror
+  mirrorAxis: 'horizontal' | 'vertical' | 'both';
+  // Even/Odd
+  evenOddType: 'even' | 'odd';
+  // Rotate
+  rotateAngle: number;
+  // Differentiate
+  diffDirection: 'x' | 'y' | 'both';
+  // Integrate
+  intDirection: 'x' | 'y' | 'both';
+  // Window
+  windowType: WindowType;
+  windowWidthRatio: number;
+  windowHeightRatio: number;
+  windowSigma: number;
+  // Multiple FT
+  ftCount: number;
+  // Domain
+  applyInFrequency: boolean;
+}
+
+export type AppMode = 'mixer' | 'emphasizer';

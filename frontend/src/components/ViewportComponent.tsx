@@ -3,13 +3,18 @@
  *
  * Single shared component for ALL viewports in the app (Constitution §III).
  * Supports: image display, FT component dropdown, mouse-drag B/C,
- * double-click browse, and region overlay (Phase 3).
+ * double-click browse, region overlay, and external image source.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FTComponent } from '../types/image';
 import { getImage, getFTComponent, uploadImage } from '../services/imageApi';
 import { useMouseDrag } from '../hooks/useMouseDrag';
+
+interface RegionOverlay {
+  size: number; // 0–100 percentage
+  type: 'inner' | 'outer';
+}
 
 interface ViewportComponentProps {
   sessionId: string;
@@ -17,6 +22,11 @@ interface ViewportComponentProps {
   label?: string;
   allowUpload?: boolean;
   onImageLoaded?: (slot: number, filename: string) => void;
+  viewMode?: 'spatial' | FTComponent;
+  hideDropdown?: boolean;
+  regionOverlay?: RegionOverlay;
+  /** If set, display this base64 image directly instead of fetching from API */
+  externalSrc?: string | null;
 }
 
 export function ViewportComponent({
@@ -25,70 +35,88 @@ export function ViewportComponent({
   label,
   allowUpload = true,
   onImageLoaded,
+  viewMode,
+  hideDropdown = false,
+  regionOverlay,
+  externalSrc,
 }: ViewportComponentProps) {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [filename, setFilename] = useState('');
-  const [activeComponent, setActiveComponent] = useState<'spatial' | FTComponent>('spatial');
+  const [internalActiveComponent, setInternalActiveComponent] = useState<'spatial' | FTComponent>('spatial');
+  const activeComponent = viewMode || internalActiveComponent;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { brightness, contrast, isDragging, handlers, reset } = useMouseDrag();
+  const fetchIdRef = useRef(0);
 
-  // Fetch the image with current B/C settings
+  // When externalSrc is provided, use it directly
+  useEffect(() => {
+    if (externalSrc !== undefined) {
+      setImageSrc(externalSrc);
+    }
+  }, [externalSrc]);
+
+  // Fetch the display image from API (only when not using external source)
   const fetchDisplay = useCallback(
     async (component: 'spatial' | FTComponent, b: number, c: number) => {
-      if (!sessionId) return;
+      if (!sessionId || externalSrc !== undefined) return;
+      const id = ++fetchIdRef.current;
       setLoading(true);
       setError(null);
       try {
         if (component === 'spatial') {
           const res = await getImage(sessionId, slot, b, c);
+          if (fetchIdRef.current !== id) return;
           setImageSrc(`data:image/png;base64,${res.preview}`);
           setFilename(res.filename);
         } else {
           const res = await getFTComponent(sessionId, slot, component, b, c);
+          if (fetchIdRef.current !== id) return;
           setImageSrc(`data:image/png;base64,${res.image}`);
         }
       } catch (err: unknown) {
-        if (err instanceof Error && !err.message.includes('empty')) {
+        if (fetchIdRef.current !== id) return;
+        if (err instanceof Error && !err.message.includes('404')) {
           setError(err.message);
         }
       } finally {
-        setLoading(false);
+        if (fetchIdRef.current === id) setLoading(false);
       }
     },
-    [sessionId, slot]
+    [sessionId, slot, externalSrc]
   );
 
-  // Handle component dropdown change
+  // Re-fetch when component/session/B&C changes (debounced during drag)
+  useEffect(() => {
+    if (externalSrc !== undefined) return;
+    if (isDragging) return; // don't fetch during active drag
+    fetchDisplay(activeComponent, brightness, contrast);
+  }, [sessionId, activeComponent, fetchDisplay, brightness, contrast, isDragging, externalSrc]);
+
   const handleComponentChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const value = e.target.value as 'spatial' | FTComponent;
-      setActiveComponent(value);
-      fetchDisplay(value, brightness, contrast);
+      setInternalActiveComponent(value);
     },
-    [fetchDisplay, brightness, contrast]
+    []
   );
 
-  // Handle double-click browse
   const handleDoubleClick = useCallback(() => {
     if (!allowUpload) return;
     fileInputRef.current?.click();
   }, [allowUpload]);
 
-  // Handle file selection
   const handleFileChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file || !sessionId) return;
-
       setLoading(true);
       setError(null);
       try {
         const res = await uploadImage(sessionId, slot, file);
         setImageSrc(`data:image/png;base64,${res.preview}`);
         setFilename(res.filename);
-        setActiveComponent('spatial');
         reset();
         onImageLoaded?.(slot, res.filename);
       } catch (err: unknown) {
@@ -101,93 +129,87 @@ export function ViewportComponent({
     [sessionId, slot, onImageLoaded, reset]
   );
 
-  // Refresh display when B/C changes (via mouse drag)
-  const handleMouseUp = useCallback(() => {
-    handlers.onMouseUp();
-    if (imageSrc) {
-      fetchDisplay(activeComponent, brightness, contrast);
-    }
-  }, [handlers, imageSrc, fetchDisplay, activeComponent, brightness, contrast]);
-
   return (
-    <div className="flex flex-col gap-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl overflow-hidden shadow-lg">
+    <div className="viewport-component">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-[var(--bg-secondary)] border-b border-[var(--border-color)]">
-        <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+      <div className="viewport-header">
+        <span className="viewport-label">
           {label || `Viewport ${slot + 1}`}
         </span>
-        <select
-          value={activeComponent}
-          onChange={handleComponentChange}
-          className="text-xs bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[var(--accent-blue)]"
-          disabled={!imageSrc}
-        >
-          <option value="spatial">Spatial</option>
-          <option value="magnitude">FT Magnitude</option>
-          <option value="phase">FT Phase</option>
-          <option value="real">FT Real</option>
-          <option value="imaginary">FT Imaginary</option>
-        </select>
+        {!hideDropdown && (
+          <select
+            value={activeComponent}
+            onChange={handleComponentChange}
+            className="viewport-dropdown"
+            disabled={!imageSrc}
+          >
+            <option value="spatial">Spatial</option>
+            <option value="magnitude">FT Magnitude</option>
+            <option value="phase">FT Phase</option>
+            <option value="real">FT Real</option>
+            <option value="imaginary">FT Imaginary</option>
+          </select>
+        )}
       </div>
 
       {/* Image area */}
       <div
-        className={`relative w-full aspect-square flex items-center justify-center cursor-${
-          isDragging ? 'grabbing' : allowUpload ? 'pointer' : 'default'
-        } select-none`}
+        className={`viewport-canvas ${isDragging ? 'dragging' : ''} ${allowUpload ? 'clickable' : ''}`}
         onDoubleClick={handleDoubleClick}
         onMouseDown={handlers.onMouseDown}
         onMouseMove={handlers.onMouseMove}
-        onMouseUp={handleMouseUp}
+        onMouseUp={handlers.onMouseUp}
         onMouseLeave={handlers.onMouseLeave}
       >
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
-            <div className="w-6 h-6 border-2 border-[var(--accent-blue)] border-t-transparent rounded-full animate-spin" />
+          <div className="viewport-loading">
+            <div className="spinner" />
           </div>
         )}
 
         {imageSrc ? (
-          <img
-            src={imageSrc}
-            alt={filename || 'Viewport image'}
-            className="max-w-full max-h-full object-contain"
-            draggable={false}
-          />
+          <img src={imageSrc} alt={filename || 'Viewport image'} className="viewport-image" draggable={false} />
         ) : (
-          <div className="flex flex-col items-center gap-2 text-[var(--text-secondary)]">
-            <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="viewport-empty">
+            <svg className="viewport-empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            <span className="text-xs">
+            <span className="viewport-empty-text">
               {allowUpload ? 'Double-click to load' : 'Output'}
             </span>
           </div>
         )}
 
-        {error && (
-          <div className="absolute bottom-2 left-2 right-2 text-xs text-red-400 bg-red-900/50 rounded px-2 py-1">
-            {error}
+        {/* Region overlay */}
+        {regionOverlay && imageSrc && (
+          <div className="region-overlay-container">
+            {regionOverlay.type === 'outer' && (
+              <div className="region-overlay-outer" />
+            )}
+            <div
+              className={`region-overlay-rect ${regionOverlay.type}`}
+              style={{
+                left: `${(100 - regionOverlay.size) / 2}%`,
+                top: `${(100 - regionOverlay.size) / 2}%`,
+                width: `${regionOverlay.size}%`,
+                height: `${regionOverlay.size}%`,
+              }}
+            />
           </div>
+        )}
+
+        {error && (
+          <div className="viewport-error">{error}</div>
         )}
       </div>
 
-      {/* Footer info */}
-      <div className="px-3 py-1.5 text-[10px] text-[var(--text-secondary)] flex justify-between border-t border-[var(--border-color)]">
-        <span>{filename || 'No image'}</span>
-        <span>
-          B:{brightness.toFixed(2)} C:{contrast.toFixed(2)}
-        </span>
+      {/* Footer */}
+      <div className="viewport-footer">
+        <span className="viewport-filename">{filename || 'No image'}</span>
+        <span>B:{brightness.toFixed(2)} C:{contrast.toFixed(2)}</span>
       </div>
 
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".png,.jpg,.jpeg,.bmp"
-        onChange={handleFileChange}
-        className="hidden"
-      />
+      <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.bmp" onChange={handleFileChange} className="hidden" />
     </div>
   );
 }
