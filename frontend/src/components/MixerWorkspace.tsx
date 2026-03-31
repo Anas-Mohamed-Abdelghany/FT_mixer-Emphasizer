@@ -14,8 +14,10 @@ import { ViewportPair } from './ViewportPair';
 import { OutputTargetSelector } from './OutputTargetSelector';
 import { ResizePolicyPanel } from './ResizePolicyPanel';
 import { ComponentsMixer } from './ComponentsMixer';
-import { mixImages, cancelMix } from '../services/imageApi';
+import { mixImages } from '../services/imageApi';
 import type { OutputTarget, MixMode, ImageWeight } from '../types/image';
+
+let activeMixAbort: AbortController | null = null;
 
 export function MixerWorkspace() {
   const { sessionId, loading, error } = useSession();
@@ -26,6 +28,10 @@ export function MixerWorkspace() {
   const [outputImages, setOutputImages] = useState<(string | null)[]>([null, null]);
   const [regionOverlay, setRegionOverlay] = useState<{ size: number; type: 'inner' | 'outer' }>({ size: 100, type: 'inner' });
   const mixingRef = useRef(false);
+
+  const handleRegionChange = useCallback((size: number, type: 'inner' | 'outer') => {
+    setRegionOverlay({ size, type });
+  }, []);
 
   const handleImageLoaded = useCallback((slot: number) => {
     console.log(`Image loaded in slot ${slot}`);
@@ -48,10 +54,31 @@ export function MixerWorkspace() {
     regionType: 'inner' | 'outer',
     simulateSlow: boolean
   ) => {
-    if (!sessionId || mixingRef.current) return;
+    if (!sessionId) return;
+
+    // Cancel any in-flight mix
+    if (activeMixAbort) {
+      activeMixAbort.abort();
+      activeMixAbort = null;
+    }
+
+    const abortController = new AbortController();
+    activeMixAbort = abortController;
     mixingRef.current = true;
     setMixProgress(0);
     setRegionOverlay({ size: regionSize, type: regionType });
+
+    // Simulate incremental progress while waiting for backend
+    let progressValue = 0;
+    const progressInterval = setInterval(() => {
+      if (abortController.signal.aborted) {
+        clearInterval(progressInterval);
+        return;
+      }
+      // Incrementally approach 90% (never reach 100 until done)
+      progressValue = Math.min(90, progressValue + (90 - progressValue) * 0.08);
+      setMixProgress(progressValue);
+    }, 200);
 
     try {
       const result = await mixImages(sessionId, {
@@ -63,7 +90,10 @@ export function MixerWorkspace() {
         simulate_slow: simulateSlow,
       }, (pct) => {
         setMixProgress(pct);
-      });
+      }, abortController.signal);
+
+      clearInterval(progressInterval);
+      setMixProgress(100);
 
       const imgSrc = `data:image/png;base64,${result.preview}`;
       setOutputImages(prev => {
@@ -73,19 +103,26 @@ export function MixerWorkspace() {
       });
       setRefreshKey(prev => prev + 1);
     } catch (err) {
+      clearInterval(progressInterval);
       if (err instanceof DOMException && err.name === 'AbortError') {
         console.log('Mix cancelled');
       } else {
         console.error('Mix failed:', err);
       }
     } finally {
+      if (activeMixAbort === abortController) {
+        activeMixAbort = null;
+      }
       mixingRef.current = false;
       setMixProgress(null);
     }
   }, [sessionId, activeOutputTarget]);
 
   const handleCancelMix = useCallback(() => {
-    cancelMix();
+    if (activeMixAbort) {
+      activeMixAbort.abort();
+      activeMixAbort = null;
+    }
     mixingRef.current = false;
     setMixProgress(null);
   }, []);
@@ -147,6 +184,7 @@ export function MixerWorkspace() {
         <ComponentsMixer
           onMix={handleMix}
           onCancel={handleCancelMix}
+          onRegionChange={handleRegionChange}
           progress={mixProgress}
           loadedSlots={loadedSlots}
         />

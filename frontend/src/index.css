@@ -806,3 +806,61 @@ body {
   }
   .emphasizer-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Progress Bar Component ─────────────────────────────────────── */
+
+.progress-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+.progress-bar-track {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+.progress-bar-fill {
+  height: 100%;
+  background: var(--gradient-primary);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.progress-bar-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-blue);
+  min-width: 36px;
+  text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Backend toggle */
+.backend-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+.backend-toggle-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.backend-toggle-checkbox {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent-purple);
+  flex-shrink: 0;
+}
+

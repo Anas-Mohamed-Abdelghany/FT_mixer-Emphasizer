@@ -10,6 +10,7 @@ from typing import Optional
 
 from backend.domain.image_model import ImageModel
 from backend.domain.resize_policy import ResizeMode, ResizePolicy
+from backend.domain.job_manager import JobManager
 
 
 class Session:
@@ -20,6 +21,7 @@ class Session:
         id: Session UUID.
         slots: Dict mapping slot index to ImageModel.
         resize_policy: Active resize policy (or None).
+        job_manager: JobManager for this session's background tasks.
     """
 
     MAX_INPUT_SLOTS = 4
@@ -30,6 +32,7 @@ class Session:
         self.id = session_id
         self.slots: dict[int, ImageModel] = {}
         self.resize_policy: Optional[ResizePolicy] = None
+        self.job_manager = JobManager()
 
     def get_image(self, slot: int) -> Optional[ImageModel]:
         """Get the ImageModel at a slot, or None if empty."""

@@ -5,9 +5,9 @@ Delegates all math to RegionMask and MixingEngine domain classes.
 No business logic here — only orchestration (Constitution §V).
 """
 
+import asyncio
 import base64
 import io
-import time
 
 import numpy as np
 from fastapi import APIRouter, HTTPException
@@ -140,12 +140,14 @@ async def mix_images(session_id: str, request: MixRequest) -> MixResponse:
     )
     mask = region_mask.to_array(height, width)
 
-    # Mix
-    result = MixingEngine.mix(images, request.mode, weights_a, weights_b, mask)
-
-    # Simulate slow processing if requested
+    # Simulate slow processing if requested (non-blocking)
     if request.simulate_slow:
-        time.sleep(3)
+        await asyncio.sleep(10)
+
+    # Run CPU-bound mix in a thread to avoid blocking the event loop
+    result = await asyncio.to_thread(
+        MixingEngine.mix, images, request.mode, weights_a, weights_b, mask
+    )
 
     # Normalize to uint8
     result_uint8 = (result * 255).astype(np.uint8)

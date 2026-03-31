@@ -83,19 +83,19 @@ export async function verifyRoundTrip(sessionId: string, slot: number): Promise<
 
 // ── Mixing ──────────────────────────────────────────────────────────
 
-export async function mixImages(sessionId: string, request: MixRequest, onProgress: (pct: number) => void): Promise<MixResponse> {
-  // Simulate progress for UI feedback while waiting for backend
-  onProgress(10);
+export async function mixImages(sessionId: string, request: MixRequest, onProgress: (pct: number) => void, signal?: AbortSignal): Promise<MixResponse> {
+  onProgress(5);
   const res = await fetch(`${BASE_URL}/session/${sessionId}/mix`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
+    signal,
   });
   onProgress(100);
   return handleResponse<MixResponse>(res);
 }
 
 export function cancelMix(): void {
-  // Cancellation requires a specific backend implementation (e.g., abort token)
-  // For now, it's a no-op when connecting directly to the backend
+  // Cancellation is handled via AbortController in MixerWorkspace.
+  // This function is kept for API completeness.
 }

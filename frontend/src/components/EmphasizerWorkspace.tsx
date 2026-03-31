@@ -11,6 +11,10 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { EmphasizerAction, EmphasizerParams, FTComponent, WindowType } from '../types/image';
+import { useSession } from '../hooks/useSession';
+import * as imageApi from '../services/imageApi';
+import * as emphasizerApi from '../services/emphasizerApi';
+import { ProgressBar } from './ProgressBar';
 import {
   type ComplexImage,
   loadFileAsComplexImage,
@@ -28,7 +32,6 @@ import {
   computeIFT,
   complexImageToPngBase64,
   complexImageToFTPngBase64,
-  createComplexFromGrayscale,
 } from '../services/emphasisEngine';
 import { useMouseDrag } from '../hooks/useMouseDrag';
 
@@ -123,6 +126,12 @@ const ACTION_LABELS: Record<EmphasizerAction, string> = {
 };
 
 export function EmphasizerWorkspace() {
+  const { sessionId } = useSession();
+  const [useBackend, setUseBackend] = useState<boolean>(true);
+  const [progress, setProgress] = useState<number>(0);
+  const [showProgress, setShowProgress] = useState<boolean>(false);
+  const backendCancelRef = useRef<(() => void) | null>(null);
+
   const [action, setAction] = useState<EmphasizerAction>('shift');
   const [params, setParams] = useState<EmphasizerParams>(DEFAULT_PARAMS);
   const [originalImage, setOriginalImage] = useState<ComplexImage | null>(null);
@@ -153,11 +162,74 @@ export function EmphasizerWorkspace() {
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const { img, pixels } = await loadFileAsComplexImage(file);
-    setOriginalImage(img);
-    setOriginalPixels(pixels);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }, []);
+
+    try {
+      if (sessionId) {
+        await imageApi.uploadImage(sessionId, 0, file);
+      }
+      const { img, pixels } = await loadFileAsComplexImage(file);
+      setOriginalImage(img);
+      setOriginalPixels(pixels);
+    } catch (err) {
+      console.error('Failed to load image:', err);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }, [sessionId]);
+
+  const handleApplyBackend = useCallback(async () => {
+    if (!sessionId || !originalImage) return;
+
+    if (backendCancelRef.current) {
+      backendCancelRef.current();
+      backendCancelRef.current = null;
+    }
+
+    try {
+      setShowProgress(true);
+      setProgress(0);
+
+      const request: emphasizerApi.TransformRequest = {
+        operation: action,
+        params: params as any,
+        domain: params.applyInFrequency ? 'frequency' : 'spatial',
+        slot: 0,
+      };
+
+      const { request_id } = await emphasizerApi.applyTransform(sessionId, request);
+
+      const cancelProgress = emphasizerApi.connectProgress(
+        sessionId,
+        (event) => {
+          if (event.request_id === request_id) {
+            setProgress(event.progress);
+          }
+        },
+        async () => {
+          try {
+            const result = await emphasizerApi.getTransformResult(sessionId, request_id);
+            setModSpatial(`data:image/png;base64,${result.preview}`);
+            setModFT(`data:image/png;base64,${result.ft_preview}`);
+          } catch (err) {
+            console.error('Failed to get backend result:', err);
+          } finally {
+            setTimeout(() => {
+              setShowProgress(false);
+            }, 500);
+          }
+        },
+        (err) => {
+          console.error('Progress stream error:', err);
+          setShowProgress(false);
+        }
+      );
+
+      backendCancelRef.current = cancelProgress;
+    } catch (err) {
+      console.error('Backend execution failed:', err);
+      setShowProgress(false);
+    }
+  }, [sessionId, originalImage, action, params]);
 
   // Apply action whenever image, action, or params change
   useEffect(() => {
@@ -173,6 +245,11 @@ export function EmphasizerWorkspace() {
         // Render original FT
         const origFFT = computeFT(originalImage);
         setOrigFT(complexImageToFTPngBase64(origFFT, ftComp));
+
+        if (useBackend) {
+          setProcessing(false);
+          return;
+        }
 
         // Apply action
         let modified: ComplexImage;
@@ -238,7 +315,7 @@ export function EmphasizerWorkspace() {
     }, 50);
 
     return () => clearTimeout(timeoutId);
-  }, [originalImage, originalPixels, action, params, spatialComp, ftComp]);
+  }, [originalImage, originalPixels, action, params, spatialComp, ftComp, useBackend]);
 
   return (
     <div className="workspace">
@@ -386,6 +463,32 @@ export function EmphasizerWorkspace() {
             {action === 'multiple-ft' && (
               <ParamSlider label="FT Count" value={params.ftCount} min={1} max={10} step={1} onChange={v => updateParam('ftCount', v)} />
             )}
+            
+            <div className="emphasizer-backend-controls" style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <label className="backend-toggle-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input 
+                  type="checkbox" 
+                  checked={useBackend} 
+                  onChange={e => setUseBackend(e.target.checked)}
+                  className="backend-toggle-checkbox"
+                />
+                <span style={{ fontSize: '11px', fontWeight: 'bold' }}>Use Backend (Threaded)</span>
+              </label>
+              
+              {useBackend && (
+                <>
+                  <button 
+                    className="mode-btn active"
+                    onClick={handleApplyBackend}
+                    disabled={!originalImage || showProgress}
+                    style={{ width: '100%', padding: '8px', cursor: (!originalImage || showProgress) ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
+                  >
+                    Apply to Backend
+                  </button>
+                  <ProgressBar progress={progress} visible={showProgress} />
+                </>
+              )}
+            </div>
           </div>
         </aside>
 

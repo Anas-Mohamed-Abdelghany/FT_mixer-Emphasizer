@@ -21,11 +21,12 @@ interface ComponentsMixerProps {
     simulateSlow: boolean
   ) => void;
   onCancel: () => void;
+  onRegionChange: (size: number, type: 'inner' | 'outer') => void;
   progress: number | null; // null = not mixing, 0–100 = mixing
   loadedSlots: boolean[]; // which of the 4 input slots have images
 }
 
-export function ComponentsMixer({ onMix, onCancel, progress, loadedSlots }: ComponentsMixerProps) {
+export function ComponentsMixer({ onMix, onCancel, onRegionChange, progress, loadedSlots }: ComponentsMixerProps) {
   const [mode, setMode] = useState<MixMode>('mag-phase');
   const [weights, setWeights] = useState<ImageWeight[]>([
     { componentA: 1, componentB: 0 },
@@ -36,6 +37,16 @@ export function ComponentsMixer({ onMix, onCancel, progress, loadedSlots }: Comp
   const [regionSize, setRegionSize] = useState(100);
   const [regionType, setRegionType] = useState<'inner' | 'outer'>('inner');
   const [simulateSlow, setSimulateSlow] = useState(false);
+
+  const handleRegionSizeChange = (size: number) => {
+    setRegionSize(size);
+    onRegionChange(size, regionType);
+  };
+
+  const handleRegionTypeChange = (type: 'inner' | 'outer') => {
+    setRegionType(type);
+    onRegionChange(regionSize, type);
+  };
 
   const labelA = mode === 'mag-phase' ? 'Magnitude' : 'Real';
   const labelB = mode === 'mag-phase' ? 'Phase' : 'Imaginary';
@@ -114,14 +125,14 @@ export function ComponentsMixer({ onMix, onCancel, progress, loadedSlots }: Comp
           <div className="mixer-region-toggle">
             <button
               className={`region-btn ${regionType === 'inner' ? 'active' : ''}`}
-              onClick={() => setRegionType('inner')}
+              onClick={() => handleRegionTypeChange('inner')}
               disabled={isMixing}
             >
               Inner (Low)
             </button>
             <button
               className={`region-btn ${regionType === 'outer' ? 'active' : ''}`}
-              onClick={() => setRegionType('outer')}
+              onClick={() => handleRegionTypeChange('outer')}
               disabled={isMixing}
             >
               Outer (High)
@@ -134,7 +145,7 @@ export function ComponentsMixer({ onMix, onCancel, progress, loadedSlots }: Comp
             type="range"
             min="0" max="100" step="1"
             value={regionSize}
-            onChange={e => setRegionSize(parseInt(e.target.value))}
+            onChange={e => handleRegionSizeChange(parseInt(e.target.value))}
             disabled={isMixing}
             className="mixer-slider region-slider"
           />
