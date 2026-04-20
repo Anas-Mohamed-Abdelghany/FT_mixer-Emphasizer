@@ -56,7 +56,7 @@ def _complex_to_ft_magnitude_base64(complex_array: np.ndarray) -> str:
     """Convert a 2D complex array to a log-magnitude base64 PNG (shifted)."""
     shifted = np.fft.fftshift(complex_array)
     mag = np.abs(shifted)
-    log_mag = np.log1p(mag)
+    log_mag = 20 * np.log10(1 + mag)
     if log_mag.max() > 0:
         log_mag /= log_mag.max()
     return _array_to_base64_png(log_mag)
@@ -234,9 +234,12 @@ async def get_transform_component(session_id: str, request_id: int, domain: str,
         
     if component == "magnitude":
         mag = np.abs(arr)
-        val = np.log1p(mag) if domain == "frequency" else mag
-        v_min, v_max = val.min(), val.max()
-        norm = (val - v_min) / (v_max - v_min) if v_max > v_min else val
+        if domain == "frequency":
+            log_mag = 20 * np.log10(1 + mag)
+            norm = log_mag / log_mag.max() if log_mag.max() > 0 else np.zeros_like(log_mag)
+        else:
+            v_min, v_max = mag.min(), mag.max()
+            norm = (mag - v_min) / (v_max - v_min) if v_max > v_min else mag
     elif component == "phase":
         val = np.angle(arr)
         norm = (val + np.pi) / (2 * np.pi)

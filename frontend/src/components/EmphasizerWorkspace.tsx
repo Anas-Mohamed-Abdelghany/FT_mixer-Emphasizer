@@ -10,18 +10,7 @@ import { DynamicParameterPanel } from './DynamicParameterPanel';
 import {
   type ComplexImage,
   loadFileAsComplexImage,
-  shiftImage,
-  multiplyByExp,
-  stretchImage,
-  mirrorImage,
-  makeEvenOdd,
-  rotateImage,
-  differentiateImage,
-  integrateImage,
-  applyWindow,
-  applyMultipleFT,
   computeFT,
-  computeIFT,
   complexImageToPngBase64,
   complexImageToFTPngBase64,
 } from '../services/emphasisEngine';
@@ -105,7 +94,7 @@ const DEBOUNCE_MS = 200;
 
 export function EmphasizerWorkspace() {
   const { sessionId } = useSession();
-  const [useBackend, setUseBackend] = useState<boolean>(true);
+
   const [progress, setProgress] = useState<number>(0);
   const [showProgress, setShowProgress] = useState<boolean>(false);
   const backendCancelRef = useRef<(() => void) | null>(null);
@@ -114,7 +103,7 @@ export function EmphasizerWorkspace() {
   const [params, setParams] = useState<EmphasizerParams>(DEFAULT_PARAMS);
   const [originalImage, setOriginalImage] = useState<ComplexImage | null>(null);
   const [originalPixels, setOriginalPixels] = useState<number[] | null>(null);
-  const [processing, setProcessing] = useState(false);
+
   const [latestRequestId, setLatestRequestId] = useState<number | null>(null);
 
   // Display images (data URLs)
@@ -158,6 +147,18 @@ export function EmphasizerWorkspace() {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }, [sessionId]);
+
+  const handleReset = useCallback(() => {
+    setParams(DEFAULT_PARAMS);
+    setAction('shift');
+    setModSpatial(null);
+    setModFT(null);
+    if (backendCancelRef.current) {
+      backendCancelRef.current();
+      backendCancelRef.current = null;
+    }
+    setLatestRequestId(null);
+  }, []);
 
   const handleApplyBackend = useCallback(async () => {
     if (!sessionId || !originalImage) return;
@@ -211,19 +212,19 @@ export function EmphasizerWorkspace() {
 
   // Fetch updated Backend Spatial component if user changes dropdown
   useEffect(() => {
-    if (!useBackend || !latestRequestId || !sessionId) return;
+    if (!latestRequestId || !sessionId) return;
     emphasizerApi.getTransformComponent(sessionId, latestRequestId, 'spatial', compModSpatial)
       .then(res => setModSpatial(`data:image/png;base64,${res.image}`))
       .catch(console.error);
-  }, [compModSpatial, useBackend, latestRequestId, sessionId]);
+  }, [compModSpatial, latestRequestId, sessionId]);
 
   // Fetch updated Backend FT component if user changes dropdown
   useEffect(() => {
-    if (!useBackend || !latestRequestId || !sessionId) return;
+    if (!latestRequestId || !sessionId) return;
     emphasizerApi.getTransformComponent(sessionId, latestRequestId, 'frequency', compModFT)
       .then(res => setModFT(`data:image/png;base64,${res.image}`))
       .catch(console.error);
-  }, [compModFT, useBackend, latestRequestId, sessionId]);
+  }, [compModFT, latestRequestId, sessionId]);
 
   // ── Render original viewports (only when image or original component changes) ──
   useEffect(() => {
@@ -236,63 +237,7 @@ export function EmphasizerWorkspace() {
     setOrigFT(complexImageToFTPngBase64(cachedOrigFFT, compOrigFT));
   }, [cachedOrigFFT, compOrigFT]);
 
-  // ── Debounced transform effect (local mode only) ──
-  useEffect(() => {
-    if (!originalImage || !originalPixels || !cachedOrigFFT) return;
-    if (useBackend) return; // Backend mode doesn't run local transforms
 
-    setProcessing(true);
-
-    const timeoutId = setTimeout(() => {
-      try {
-        let modified: ComplexImage;
-        const targetImage = params.applyInFrequency ? cachedOrigFFT : originalImage;
-
-        switch (action) {
-          case 'shift': modified = shiftImage(targetImage, params.shiftX, params.shiftY); break;
-          case 'complex-exponential': modified = multiplyByExp(targetImage, params.expU, params.expV); break;
-          case 'stretch': modified = stretchImage(targetImage, params.stretchFactor); break;
-          case 'mirror': modified = mirrorImage(targetImage, params.mirrorAxis); break;
-          case 'even-odd': modified = makeEvenOdd(targetImage, params.evenOddType); break;
-          case 'rotate': modified = rotateImage(targetImage, params.rotateAngle); break;
-          case 'differentiate': modified = differentiateImage(targetImage, params.diffDirection); break;
-          case 'integrate': modified = integrateImage(targetImage, params.intDirection); break;
-          case 'window':
-            modified = applyWindow(targetImage, {
-              type: params.windowType,
-              kernelWidth: params.windowKernelWidth,
-              kernelHeight: params.windowKernelHeight,
-              strideX: params.windowStrideX,
-              strideY: params.windowStrideY,
-              sigma: params.windowSigma,
-              mode: params.windowMode,
-            });
-            break;
-          default: modified = targetImage;
-        }
-
-        if (params.ftCount > 0) {
-          modified = applyMultipleFT(modified, params.ftCount);
-        }
-
-        if (params.applyInFrequency) {
-          setModFT(complexImageToFTPngBase64(modified, compModFT));
-          const ifftResult = computeIFT(modified);
-          setModSpatial(complexImageToPngBase64(ifftResult, compModSpatial));
-        } else {
-          setModSpatial(complexImageToPngBase64(modified, compModSpatial));
-          const modFFT = computeFT(modified);
-          setModFT(complexImageToFTPngBase64(modFFT, compModFT));
-        }
-      } catch (err) {
-        console.error('Emphasis computation error:', err);
-      } finally {
-        setProcessing(false);
-      }
-    }, DEBOUNCE_MS);
-
-    return () => clearTimeout(timeoutId);
-  }, [originalImage, originalPixels, cachedOrigFFT, action, params, compModSpatial, compModFT, useBackend]);
 
   return (
     <div className="workspace">
@@ -325,31 +270,36 @@ export function EmphasizerWorkspace() {
           </div>
 
           <div className="emphasizer-backend-controls" style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <label className="backend-toggle-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <input type="checkbox" checked={useBackend} onChange={e => setUseBackend(e.target.checked)} className="backend-toggle-checkbox" />
-              <span style={{ fontSize: '11px', fontWeight: 'bold' }}>Use Backend (Threaded)</span>
-            </label>
-            {useBackend && (
-              <>
-                <button
-                  className="mixer-mix-btn"
-                  onClick={handleApplyBackend}
-                  disabled={!originalImage || showProgress}
-                  style={{ width: '100%', justifyContent: 'center' }}
-                >
-                  Apply to Backend
-                </button>
-                <ProgressBar progress={progress} visible={showProgress} />
-              </>
-            )}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                className="mixer-mix-btn"
+                onClick={handleApplyBackend}
+                disabled={!originalImage || showProgress}
+                style={{ flex: 1, justifyContent: 'center' }}
+              >
+                Apply Action
+              </button>
+              <button
+                className="mixer-control-btn"
+                onClick={handleReset}
+                disabled={!originalImage || showProgress}
+                style={{ width: 'auto', padding: '0 15px' }}
+                title="Reset Parameters"
+              >
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            </div>
+            <ProgressBar progress={progress} visible={showProgress} />
           </div>
         </aside>
 
         <div className="emphasizer-viewports">
-          {processing && (
+          {showProgress && (
             <div className="emphasizer-processing">
               <div className="spinner" />
-              <span>Processing...</span>
+              <span>Processing on backend...</span>
             </div>
           )}
           <div className="emphasizer-grid">
