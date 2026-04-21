@@ -7,6 +7,11 @@
   <p><i>A powerful, mathematical sandbox for exploring the discrete Fourier Transform (FT) of images, visualizing complex frequency components, and testing signal processing properties in real-time.</i></p>
 </div>
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/6db1a2b7-7578-4c78-94d4-2bf484a6436f" width="45%" />
+  <img src="https://github.com/user-attachments/assets/c42c08ad-079c-4b44-b23c-59d8bc5252a7" width="45%" />
+</p>
+
 ---
 
 ## 📖 Overview
@@ -17,6 +22,10 @@ This project was built from the ground up prioritizing mathematical purity — t
 
 ## 📸 Interface Showcases
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/85d0437c-21e2-43dc-a58c-7bd956d3d2b3" width="45%" />
+  <img src="https://github.com/user-attachments/assets/8142dc2d-2a73-479e-a46e-1de416f8518e" width="45%" />
+</p>
 
 ---
 
